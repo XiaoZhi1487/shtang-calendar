@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">沙塘圩日历</string>
+    <string name="title_activity_main">沙塘圩日历</string>
+    <string name="package_name">com.shtang.calendar</string>
+    <string name="custom_url_scheme">com.shtang.calendar</string>
+</resources>
