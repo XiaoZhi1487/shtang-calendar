@@ -147,6 +147,32 @@ app.get('/api/version/latest', async (req, res) => {
   }
 });
 
+// 添加新版本（简单密码保护）
+app.post('/api/version/add', async (req, res) => {
+  try {
+    const { version, releaseNote, downloadUrl, secret } = req.body;
+    
+    // 简单保护（生产环境应该用更安全的方式）
+    if (secret !== 'shtang123') {
+      return res.status(401).json({ error: '未授权' });
+    }
+    
+    if (!version || !downloadUrl) {
+      return res.status(400).json({ error: '参数不完整' });
+    }
+    
+    await pool.query(
+      'INSERT INTO app_version (version, release_note, download_url) VALUES (?, ?, ?)',
+      [version, releaseNote || '新版本发布', downloadUrl]
+    );
+    
+    res.json({ success: true, message: `版本 ${version} 添加成功` });
+  } catch (error) {
+    console.error('添加版本失败:', error);
+    res.status(500).json({ error: '服务器错误' });
+  }
+});
+
 // =============================================
 // 记账 API
 // =============================================
