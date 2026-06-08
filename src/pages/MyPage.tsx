@@ -22,6 +22,7 @@ export function MyPage() {
   const { syncToCloud, loadFromCloud } = useAppStore();
   const [showLogin, setShowLogin] = useState(false);
   const [showUpdate, setShowUpdate] = useState(false);
+  const [showUpdateInfo, setShowUpdateInfo] = useState<string | null>(null); // 显示已是最新版本等提示
   const [updateData, setUpdateData] = useState<{
     version: string;
     releaseNote: string;
@@ -34,14 +35,35 @@ export function MyPage() {
 
   const handleCheckUpdate = async () => {
     setChecking(true);
+    setShowUpdateInfo(null);
+    setUpdateData(null);
+
     const result = await checkUpdate();
+    const currentVersion = getAppVersion();
+
     if (result.hasUpdate) {
-      setUpdateData({
-        version: result.version,
-        releaseNote: result.releaseNote,
-        downloadUrl: result.downloadUrl
-      });
-      setShowUpdate(true);
+      // 有新版本
+      if (result.version !== currentVersion) {
+        // 服务器版本 > 本地版本，显示更新弹窗
+        setUpdateData({
+          version: result.version,
+          releaseNote: result.releaseNote,
+          downloadUrl: result.downloadUrl
+        });
+        setShowUpdate(true);
+      } else {
+        // 版本相同，显示已是最新版本提示
+        setShowUpdateInfo('当前已是最新版本');
+        setTimeout(() => setShowUpdateInfo(null), 3000);
+      }
+    } else {
+      // 没有新版本，或服务器返回空
+      if (!result.version) {
+        setShowUpdateInfo('无法检查更新，请稍后再试');
+      } else {
+        setShowUpdateInfo('当前已是最新版本');
+      }
+      setTimeout(() => setShowUpdateInfo(null), 3000);
     }
     setChecking(false);
   };
@@ -293,7 +315,7 @@ export function MyPage() {
 
         {/* 关于 */}
         <div className={`rounded-2xl ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-white'} shadow-sm overflow-hidden`}>
-          <div 
+          <div
             onClick={handleCheckUpdate}
             className={`flex items-center justify-between px-4 py-3.5 cursor-pointer transition-colors
               ${theme === 'dark' ? 'hover:bg-slate-700/50' : 'hover:bg-slate-50'}
@@ -314,7 +336,7 @@ export function MyPage() {
                 <div className={`text-xs
                       ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}
                     `}>
-                      {checking ? '检查中...' : `当前版本 v${getAppVersion()}`}
+                      {checking ? '检查中...' : (showUpdateInfo || `当前版本 v${getAppVersion()}`)}
                     </div>
               </div>
             </div>

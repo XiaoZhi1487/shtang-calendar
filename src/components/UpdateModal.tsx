@@ -37,10 +37,10 @@ export function UpdateModal({
             `}>
               更新内容
             </h3>
-            <div className={`p-4 rounded-xl text-sm
+            <div className={`p-4 rounded-xl text-sm whitespace-pre-line leading-relaxed
               ${theme === 'dark' ? 'bg-slate-700/50 text-slate-300' : 'bg-slate-50 text-slate-700'}
             `}>
-              <p>{releaseNote || '优化了用户体验和性能优化'}</p>
+              {releaseNote || '优化了用户体验和性能优化'}
             </div>
           </div>
 
