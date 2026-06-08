@@ -30,7 +30,7 @@ export function SubPageContainer({ title, children, onBack }: SubPageContainerPr
           {title}
         </h1>
       </div>
-      <div className="px-4 py-4">
+      <div className="px-4 py-4 pb-24">
         {children}
       </div>
     </div>

@@ -10,7 +10,7 @@ interface AboutPageProps {
 
 export function AboutPage({ onBack }: AboutPageProps) {
   const { theme } = useThemeStore();
-  const { checkUpdate } = useUserStore();
+  const { checkUpdate, getAppVersion } = useUserStore();
   const [checking, setChecking] = React.useState(false);
   const [updateInfo, setUpdateInfo] = React.useState<{
     hasUpdate: boolean;
@@ -39,7 +39,7 @@ export function AboutPage({ onBack }: AboutPageProps) {
             沙塘圩日历
           </h1>
           <div className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
-            版本 1.0.0
+            版本 {getAppVersion()}
           </div>
           <div className={`text-xs mt-2 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
             © 2024 柳州沙塘镇

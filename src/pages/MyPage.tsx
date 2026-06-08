@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   User, Lock, Settings, HelpCircle, RefreshCw, Info, 
   LogOut, Users, ChevronRight, Bell,
@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useThemeStore } from '../store/themeStore';
 import { useUserStore } from '../store/userStore';
+import { useAppStore } from '../store/useAppStore';
 import { LoginModal } from '../components/LoginModal';
 import { UpdateModal } from '../components/UpdateModal';
 import { AccountSecurityPage } from './AccountSecurityPage';
@@ -17,7 +18,8 @@ type PageType = 'main' | 'accountSecurity' | 'appSettings' | 'helpFeedback' | 'a
 
 export function MyPage() {
   const { theme } = useThemeStore();
-  const { user, isLoggedIn, logout, checkUpdate, syncData, fetchData } = useUserStore();
+  const { user, isLoggedIn, logout, checkUpdate, getAppVersion, token } = useUserStore();
+  const { syncToCloud, loadFromCloud } = useAppStore();
   const [showLogin, setShowLogin] = useState(false);
   const [showUpdate, setShowUpdate] = useState(false);
   const [updateData, setUpdateData] = useState<{
@@ -29,24 +31,6 @@ export function MyPage() {
   const [checking, setChecking] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
-
-  // 页面加载时检查更新
-  useEffect(() => {
-    const checkAppUpdate = async () => {
-      setChecking(true);
-      const result = await checkUpdate();
-      if (result.hasUpdate) {
-        setUpdateData({
-          version: result.version,
-          releaseNote: result.releaseNote,
-          downloadUrl: result.downloadUrl
-        });
-        setShowUpdate(true);
-      }
-      setChecking(false);
-    };
-    checkAppUpdate();
-  }, []);
 
   const handleCheckUpdate = async () => {
     setChecking(true);
@@ -73,14 +57,15 @@ export function MyPage() {
     setSyncing(true);
     setSyncStatus('syncing');
     try {
-      const localData = {
-        accounts: [], // 从 zustand 获取
-        diaries: []
-      };
-      await syncData(localData);
-      const remoteData = await fetchData();
-      if (remoteData) {
+      if (!token) {
+        setSyncStatus('error');
+        return;
+      }
+      const success = await syncToCloud(token);
+      if (success) {
         setSyncStatus('success');
+      } else {
+        setSyncStatus('error');
       }
     } catch (error) {
       setSyncStatus('error');
@@ -106,7 +91,7 @@ export function MyPage() {
   }
 
   return (
-    <div className={`min-h-screen pb-20 transition-colors duration-300
+    <div className={`min-h-screen pb-24 transition-colors duration-300
       ${theme === 'dark' 
         ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900' 
         : 'bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50'
@@ -327,10 +312,10 @@ export function MyPage() {
                   检查更新
                 </div>
                 <div className={`text-xs
-                  ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}
-                `}>
-                  {checking ? '检查中...' : '当前版本 v1.0.0'}
-                </div>
+                      ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}
+                    `}>
+                      {checking ? '检查中...' : `当前版本 v${getAppVersion()}`}
+                    </div>
               </div>
             </div>
             <ChevronRight size={18} className={theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} />

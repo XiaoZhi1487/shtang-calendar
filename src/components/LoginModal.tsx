@@ -12,7 +12,7 @@ type Mode = 'login' | 'register';
 
 export function LoginModal({ isOpen, onClose }: LoginModalProps) {
   const { theme } = useThemeStore();
-  const { login, register, loginWithError, registerWithError } = useUserStore();
+  const { login, register } = useUserStore();
   const [mode, setMode] = useState<Mode>('login');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -28,9 +28,8 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     setSuccess('');
 
     try {
-      let result;
       if (mode === 'login') {
-        const { success: loginSuccess, error: loginError } = await loginWithError(phone, password);
+        const { success: loginSuccess, error: loginError } = await login(phone, password);
         if (loginSuccess) {
           setSuccess('登录成功！');
           setTimeout(onClose, 1000);
@@ -38,7 +37,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
           setError(loginError || '登录失败，请检查手机号或密码');
         }
       } else {
-        const { success: registerSuccess, error: registerError } = await registerWithError(phone, password);
+        const { success: registerSuccess, error: registerError } = await register(phone, password);
         if (registerSuccess) {
           setSuccess('注册成功！');
           setTimeout(onClose, 1000);
