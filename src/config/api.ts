@@ -8,7 +8,7 @@ const DEV_API_BASE = 'http://localhost:3000/api';
 
 // 生产环境 - 如果你部署到了公网服务器，请改成你的服务器地址
 // 例如：'https://your-domain.com/api'
-const PROD_API_BASE = 'http://localhost:3000/api'; // 这里暂时先用本地，部署后改成公网地址
+const PROD_API_BASE = 'https://shtang-calendar.onrender.com/api';
 
 // 根据环境自动选择
 export const API_BASE = import.meta.env.DEV ? DEV_API_BASE : PROD_API_BASE;
