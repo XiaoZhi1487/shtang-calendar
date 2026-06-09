@@ -118,6 +118,8 @@ async function init() {
       console.log('   POST /api/accounts           新增记账');
       console.log('   DELETE /api/accounts/:id     删除记账');
       console.log('   POST /api/feedback           提交意见反馈');
+      console.log('   POST /api/version/add        发布新版本');
+      console.log('   GET  /api/version/latest     获取最新版本');
       console.log('   GET  /api/health             健康检查');
       console.log('========================================');
     });
@@ -297,6 +299,57 @@ app.post('/api/feedback', async (req, res) => {
 // --- 健康检查 ---
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// --- 发布新版本（需要秘钥验证）---
+app.post('/api/version/add', async (req, res) => {
+  try {
+    const { version, releaseNote, downloadUrl, secret } = req.body;
+    
+    // 验证必填字段
+    if (!version || !downloadUrl || !secret) {
+      return res.status(400).json({ error: '版本号、下载链接和发布秘钥必填' });
+    }
+    
+    // 验证发布秘钥（从环境变量读取，默认为 shtang2024）
+    const PUBLISH_SECRET = process.env.PUBLISH_SECRET || 'shtang2024';
+    if (secret !== PUBLISH_SECRET) {
+      return res.status(403).json({ error: '发布秘钥错误' });
+    }
+    
+    // 插入新版本
+    const [result] = await pool.query(
+      'INSERT INTO app_version (version, release_note, download_url) VALUES (?, ?, ?)',
+      [version, releaseNote || '新版本发布', downloadUrl]
+    );
+    
+    console.log(`[发布新版本] version=${version}, id=${result.insertId}`);
+    res.json({ success: true, message: `版本 ${version} 发布成功`, id: result.insertId });
+  } catch (e) {
+    console.error('[发布新版本失败]:', e.message);
+    res.status(500).json({ error: '服务器错误', detail: e.message });
+  }
+});
+
+// --- 获取最新版本（供 App 检查更新）---
+app.get('/api/version/latest', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT version, release_note AS releaseNote, download_url AS downloadUrl, created_at AS createdAt FROM app_version ORDER BY created_at DESC LIMIT 1'
+    );
+    
+    if (rows.length === 0) {
+      return res.json({ hasUpdate: false, message: '暂无版本信息' });
+    }
+    
+    res.json({ 
+      success: true, 
+      version: rows[0]
+    });
+  } catch (e) {
+    console.error('[获取最新版本失败]:', e.message);
+    res.status(500).json({ error: '服务器错误', detail: e.message });
+  }
 });
 
 init();

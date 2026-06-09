@@ -223,9 +223,8 @@
   </div>
 
 <script>
-  // 如果直接用 file:// 打开，hostname 为空，改为 localhost
-  const hostname = window.location.hostname || 'localhost';
-  const API_BASE = 'http://' + hostname + ':3000';
+  // 使用线上 Render 后端地址
+  const API_BASE = 'https://shtang-calendar.onrender.com';
 
   const form = document.getElementById('publishForm');
   const submitBtn = document.getElementById('submitBtn');
