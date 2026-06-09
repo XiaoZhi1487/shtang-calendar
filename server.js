@@ -134,16 +134,15 @@ app.get('/api/version/latest', async (req, res) => {
       res.json({
         hasUpdate: true,
         version: versions[0].version,
-        releaseNote: versions[0].releaseNote,
+        releaseNote: versions[0].release_note,
         downloadUrl: versions[0].download_url,
-        isForceUpdate: versions[0].is_force_update
       });
     } else {
-      res.json({ hasUpdate: false });
+      res.json({ hasUpdate: false, version: '', releaseNote: '', downloadUrl: '' });
     }
   } catch (error) {
     console.error('检查更新失败:', error);
-    res.status(500).json({ error: '服务器错误' });
+    res.status(500).json({ hasUpdate: false, version: '', releaseNote: '', downloadUrl: '', error: '服务器错误' });
   }
 });
 
@@ -270,66 +269,75 @@ app.post('/api/diaries', authMiddleware, async (req, res) => {
 // 数据同步
 // =============================================
 
-// 上传数据
+// 上传数据（先清空该用户数据，再整体写入——支持删除操作的同步）
 app.post('/api/sync/upload', authMiddleware, async (req, res) => {
+  const conn = await pool.getConnection();
   try {
+    await conn.beginTransaction();
+
     const { accounts, diaries } = req.body;
 
-    // 保存记账
+    // 先清空该用户的现有数据
+    await conn.query('DELETE FROM accounts WHERE user_id = ?', [req.user.userId]);
+    await conn.query('DELETE FROM diaries WHERE user_id = ?', [req.user.userId]);
+
+    // 写入记账
     if (accounts && accounts.length > 0) {
       for (const account of accounts) {
-        await pool.query(
+        await conn.query(
           `INSERT INTO accounts 
            (user_id, type, category, sub_category, amount, unit, quantity, note, record_date) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE 
-           category = VALUES(category), 
-           sub_category = VALUES(sub_category), 
-           amount = VALUES(amount), 
-           unit = VALUES(unit), 
-           quantity = VALUES(quantity), 
-           note = VALUES(note)`,
-          [req.user.userId, account.type, account.category, account.subCategory, 
-           account.amount, account.unit, account.quantity, account.note, account.recordDate]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            req.user.userId,
+            account.type,
+            account.category,
+            account.subCategory ?? null,
+            account.amount,
+            account.unit ?? null,
+            account.quantity ?? null,
+            account.note ?? null,
+            account.recordDate
+          ]
         );
       }
     }
 
-    // 保存日记
+    // 写入日记
     if (diaries && diaries.length > 0) {
       for (const diary of diaries) {
-        await pool.query(
-          `INSERT INTO diaries (user_id, title, content, record_date) 
-           VALUES (?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE 
-           title = VALUES(title), 
-           content = VALUES(content)`,
-          [req.user.userId, diary.title, diary.content, diary.recordDate]
+        await conn.query(
+          'INSERT INTO diaries (user_id, content, record_date) VALUES (?, ?, ?)',
+          [req.user.userId, diary.content, diary.recordDate]
         );
       }
     }
 
+    await conn.commit();
     res.json({ success: true });
   } catch (error) {
+    try { await conn.rollback(); } catch {}
     console.error('上传数据失败:', error);
     res.status(500).json({ error: '服务器错误' });
+  } finally {
+    conn.release();
   }
 });
 
-// 下载数据
+// 下载数据（字段名转为 camelCase，方便前端直接使用）
 app.get('/api/sync/download', authMiddleware, async (req, res) => {
   try {
-    const [accounts] = await pool.query(
-      'SELECT * FROM accounts WHERE user_id = ? ORDER BY record_date DESC',
+    const [accountsRaw] = await pool.query(
+      'SELECT id, type, category, sub_category AS subCategory, amount, unit, quantity, note, record_date AS recordDate FROM accounts WHERE user_id = ? ORDER BY record_date DESC',
       [req.user.userId]
     );
 
-    const [diaries] = await pool.query(
-      'SELECT * FROM diaries WHERE user_id = ? ORDER BY record_date DESC',
+    const [diariesRaw] = await pool.query(
+      'SELECT content, record_date AS recordDate FROM diaries WHERE user_id = ? ORDER BY record_date DESC',
       [req.user.userId]
     );
 
-    res.json({ accounts, diaries });
+    res.json({ accounts: accountsRaw, diaries: diariesRaw });
   } catch (error) {
     console.error('下载数据失败:', error);
     res.status(500).json({ error: '服务器错误' });

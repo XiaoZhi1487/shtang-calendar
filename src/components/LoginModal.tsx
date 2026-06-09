@@ -31,8 +31,9 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
       if (mode === 'login') {
         const { success: loginSuccess, error: loginError } = await login(phone, password);
         if (loginSuccess) {
+          // 登录成功后自动从云端加载数据（在 userStore.login 中已处理）
           setSuccess('登录成功！');
-          setTimeout(onClose, 1000);
+          setTimeout(onClose, 800);
         } else {
           setError(loginError || '登录失败，请检查手机号或密码');
         }
@@ -40,7 +41,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         const { success: registerSuccess, error: registerError } = await register(phone, password);
         if (registerSuccess) {
           setSuccess('注册成功！');
-          setTimeout(onClose, 1000);
+          setTimeout(onClose, 800);
         } else {
           setError(registerError || '注册失败，手机号可能已被注册');
         }
