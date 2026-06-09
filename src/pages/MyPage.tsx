@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   User, Lock, Settings, HelpCircle, RefreshCw, Info,
   LogOut, Users, ChevronRight,
-  MessageSquare, Shield, Database
+  MessageSquare, Shield, Database, Download
 } from 'lucide-react';
 import { useThemeStore } from '../store/themeStore';
 import { useUserStore } from '../store/userStore';
@@ -10,6 +10,7 @@ import { useAppStore } from '../store/useAppStore';
 import { LoginModal } from '../components/LoginModal';
 import { AccountSwitchModal } from '../components/AccountSwitchModal';
 import { LogoutConfirmModal } from '../components/LogoutConfirmModal';
+import { UpdateModal } from '../components/UpdateModal';
 import { AccountSecurityPage } from './AccountSecurityPage';
 import { AppSettingsPage } from './AppSettingsPage';
 import { HelpFeedbackPage } from './HelpFeedbackPage';
@@ -19,7 +20,7 @@ type PageType = 'main' | 'accountSecurity' | 'appSettings' | 'helpFeedback' | 'a
 
 export function MyPage() {
   const { theme } = useThemeStore();
-  const { user, login, register, logout } = useUserStore();
+  const { user, login, register, logout, getAppVersion, checkUpdate } = useUserStore();
   const { refreshAccounts } = useAppStore();
 
   const [showLogin, setShowLogin] = useState(false);
@@ -28,6 +29,10 @@ export function MyPage() {
   const [currentPage, setCurrentPage] = useState<PageType>('main');
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string>('从云端刷新数据');
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<{ hasUpdate: boolean; version?: string; releaseNote?: string; downloadUrl?: string } | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showLatestToast, setShowLatestToast] = useState(false);
 
   const isLoggedIn = !!user;
 
@@ -45,6 +50,31 @@ export function MyPage() {
   const handleLogout = () => {
     logout();
     setShowLogoutConfirm(false);
+  };
+
+  // 检查更新
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    const result = await checkUpdate();
+    setUpdateInfo(result);
+    setCheckingUpdate(false);
+    
+    if (result.hasUpdate) {
+      // 有新版本，显示弹窗
+      setShowUpdateModal(true);
+    } else {
+      // 已是最新版本，显示提示
+      setShowLatestToast(true);
+      setTimeout(() => setShowLatestToast(false), 2000);
+    }
+  };
+
+  // 处理更新跳转
+  const handleUpdate = () => {
+    if (updateInfo?.downloadUrl) {
+      window.open(updateInfo.downloadUrl, '_blank');
+    }
+    setShowUpdateModal(false);
   };
 
   if (currentPage === 'accountSecurity') return <AccountSecurityPage onBack={() => setCurrentPage('main')} />;
@@ -65,6 +95,14 @@ export function MyPage() {
         isOpen={showLogoutConfirm}
         onClose={() => setShowLogoutConfirm(false)}
         onConfirm={handleLogout}
+      />
+      <UpdateModal
+        isOpen={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+        onUpdate={handleUpdate}
+        version={updateInfo?.version || ''}
+        releaseNote={updateInfo?.releaseNote || ''}
+        downloadUrl={updateInfo?.downloadUrl || ''}
       />
 
       <div className="bg-amber-500 p-6">
@@ -192,11 +230,50 @@ export function MyPage() {
           </div>
         </div>
 
-        {/* 关于 */}
+        {/* 关于与版本 */}
         <div className={theme === 'dark' ? `rounded-2xl ${bgDark} shadow-sm overflow-hidden` : `rounded-2xl ${bgLight} shadow-sm overflow-hidden`}>
+          <div className={`px-4 py-3 border-b ${theme === 'dark' ? borderDark : borderLight}`}>
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
+              <Info size={16} />
+              关于
+            </div>
+          </div>
+
+          {/* 检查更新 */}
+          <div
+            onClick={handleCheckUpdate}
+            className={theme === 'dark' ? 'flex items-center justify-between px-4 py-3.5 cursor-pointer hover:bg-slate-700/50' : 'flex items-center justify-between px-4 py-3.5 cursor-pointer hover:bg-slate-50'}
+          >
+            <div className="flex items-center gap-3">
+              <div className={theme === 'dark' ? 'w-9 h-9 rounded-lg flex items-center justify-center bg-amber-500/20' : 'w-9 h-9 rounded-lg flex items-center justify-center bg-amber-100'}>
+                <Download size={18} className={`${theme === 'dark' ? 'text-amber-400' : 'text-amber-600'} ${checkingUpdate ? 'animate-spin' : ''}`} />
+              </div>
+              <div>
+                <div className={theme === 'dark' ? 'font-medium text-white' : 'font-medium text-slate-900'}>检查更新</div>
+                <div className={theme === 'dark' ? 'text-xs text-slate-400' : 'text-xs text-slate-500'}>
+                  {updateInfo?.hasUpdate ? `发现新版本 ${updateInfo.version}` : `当前版本 ${getAppVersion()}`}
+                </div>
+              </div>
+            </div>
+            {updateInfo?.hasUpdate ? (
+              <a
+                href={updateInfo.downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 bg-amber-500 text-white text-xs rounded-full font-medium"
+                onClick={(e) => e.stopPropagation()}
+              >
+                立即更新
+              </a>
+            ) : (
+              <ChevronRight size={18} className={theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} />
+            )}
+          </div>
+
+          {/* 关于我们 */}
           <div
             onClick={() => setCurrentPage('about')}
-            className={theme === 'dark' ? 'flex items-center justify-between px-4 py-3.5 cursor-pointer hover:bg-slate-700/50' : 'flex items-center justify-between px-4 py-3.5 cursor-pointer hover:bg-slate-50'}
+            className={theme === 'dark' ? 'flex items-center justify-between px-4 py-3.5 cursor-pointer border-t border-slate-700/20 hover:bg-slate-700/50' : 'flex items-center justify-between px-4 py-3.5 cursor-pointer border-t border-slate-200 hover:bg-slate-50'}
           >
             <div className="flex items-center gap-3">
               <div className={theme === 'dark' ? 'w-9 h-9 rounded-lg flex items-center justify-center bg-slate-500/20' : 'w-9 h-9 rounded-lg flex items-center justify-center bg-slate-200'}>
@@ -242,6 +319,22 @@ export function MyPage() {
           <div className={theme === 'dark' ? 'text-xs text-slate-500' : 'text-xs text-slate-400'}>© 2024 沙塘圩日历 · 柳州沙塘镇</div>
         </div>
       </div>
+
+      {/* 已是最新版本提示 */}
+      {showLatestToast && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+          <div className={`px-6 py-3 rounded-xl shadow-lg animate-fade-in-out
+            ${theme === 'dark' ? 'bg-slate-800 text-white' : 'bg-white text-slate-800'}
+          `}>
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="font-medium">已是最新版本</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

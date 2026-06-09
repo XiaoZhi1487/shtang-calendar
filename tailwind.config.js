@@ -7,7 +7,19 @@ export default {
     container: {
       center: true,
     },
-    extend: {},
+    extend: {
+      animation: {
+        'fade-in-out': 'fadeInOut 2s ease-in-out',
+      },
+      keyframes: {
+        fadeInOut: {
+          '0%': { opacity: '0', transform: 'translateY(-10px)' },
+          '15%': { opacity: '1', transform: 'translateY(0)' },
+          '85%': { opacity: '1', transform: 'translateY(0)' },
+          '100%': { opacity: '0', transform: 'translateY(-10px)' },
+        },
+      },
+    },
   },
   plugins: [],
 };

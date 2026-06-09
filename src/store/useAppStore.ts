@@ -103,6 +103,10 @@ export const useAppStore = create<AppState>()(
           });
           if (!res.ok) {
             console.error('[刷新] HTTP 失败:', res.status);
+            if (res.status === 401) {
+              console.log('[刷新] token 已过期，自动登出');
+              useUserStore.getState().logout();
+            }
             return false;
           }
           const data = await res.json();
@@ -119,6 +123,7 @@ export const useAppStore = create<AppState>()(
       // 添加一条
       addAccount: async (entry) => {
         const token = hasToken();
+        console.log('[添加] token:', token ? '存在' : '不存在', token?.substring(0, 20) + '...');
 
         if (token) {
           // 已登录：写 MySQL
@@ -143,6 +148,11 @@ export const useAppStore = create<AppState>()(
             });
             if (!res.ok) {
               console.error('[添加] HTTP 失败:', res.status);
+              if (res.status === 401) {
+                // token 过期，自动登出
+                console.log('[添加] token 已过期，自动登出');
+                useUserStore.getState().logout();
+              }
               return false;
             }
             console.log('[添加] MySQL 成功');
@@ -179,6 +189,10 @@ export const useAppStore = create<AppState>()(
             });
             if (!res.ok) {
               console.error('[删除] HTTP 失败:', res.status);
+              if (res.status === 401) {
+                console.log('[删除] token 已过期，自动登出');
+                useUserStore.getState().logout();
+              }
               return false;
             }
             console.log('[删除] MySQL 成功');

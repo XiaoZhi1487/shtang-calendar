@@ -99,15 +99,17 @@ export const useUserStore = create<UserState>()(
           const res = await fetch(`${API_BASE}/version/latest`);
           if (!res.ok) return { hasUpdate: false };
           const data = await res.json();
-          if (data.version && data.version !== APP_VERSION) {
+          // 后端返回结构: { success: true, version: { version, releaseNote, downloadUrl, createdAt } }
+          const latestVersion = data.version?.version;
+          if (latestVersion && latestVersion !== APP_VERSION) {
             return {
               hasUpdate: true,
-              version: data.version,
-              releaseNote: data.releaseNote,
-              downloadUrl: data.downloadUrl,
+              version: latestVersion,
+              releaseNote: data.version.releaseNote,
+              downloadUrl: data.version.downloadUrl,
             };
           }
-          return { hasUpdate: false, version: data.version };
+          return { hasUpdate: false, version: latestVersion };
         } catch {
           return { hasUpdate: false };
         }
@@ -115,11 +117,26 @@ export const useUserStore = create<UserState>()(
     }),
     {
       name: 'user-storage',
-      // 重新初始化后（如刷新页面）：若之前已登录，则从 MySQL 拉回数据
+      // 重新初始化后（如刷新页面）：验证 token 是否有效
       onRehydrateStorage: () => (state) => {
         if (state && state.token) {
-          setTimeout(() => {
-            useAppStore.getState().refreshAccounts();
+          // 验证 token 有效性
+          setTimeout(async () => {
+            try {
+              const res = await fetch(`${API_BASE}/accounts`, {
+                headers: { 'Authorization': `Bearer ${state.token}` },
+              });
+              if (res.status === 401) {
+                // token 无效或过期，清除登录状态
+                console.log('[userStore] token 已过期，自动登出');
+                useUserStore.getState().logout();
+              } else {
+                // token 有效，拉取数据
+                await useAppStore.getState().refreshAccounts();
+              }
+            } catch (e) {
+              console.error('[userStore] 验证 token 失败:', e);
+            }
           }, 100);
         }
       },
