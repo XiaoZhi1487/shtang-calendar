@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import { API_BASE } from '../config/api';
 import { useAppStore } from './useAppStore';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 
 interface UserState {
   user: { id: string; phone: string } | null;
