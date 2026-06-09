@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Plus, Trash2, TrendingUp, TrendingDown, Calculator, ShoppingBag } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { useThemeStore } from '../../store/themeStore';
+import { getLocalDateString } from '../../utils/dateUtils';
 
 const categories = {
   expense: ['进货', '房租', '水电费', '人工', '包装', '运输', '其他'],
@@ -26,10 +27,36 @@ export function AccountBook() {
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('斤');
   const [note, setNote] = useState('');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
 
-  const today = new Date().toISOString().split('T')[0];
-  const todayAccounts = accounts.filter((a) => a.date === selectedDate);
+  const today = getLocalDateString();
+  // 规范化日期格式：把 YYYY/MM/DD 等格式统一为 YYYY-MM-DD
+  const normalizeDate = (d: string) => {
+    if (!d) return '';
+    // 先把 / 换成 -，再提取最前面的 YYYY-MM-DD
+    const s = String(d).replace(/\//g, '-');
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    // 兜底：用 Date 解析
+    const dd = new Date(s);
+    if (!isNaN(dd.getTime())) {
+      const y = dd.getFullYear();
+      const mm = String(dd.getMonth() + 1).padStart(2, '0');
+      const ddd = String(dd.getDate()).padStart(2, '0');
+      return `${y}-${mm}-${ddd}`;
+    }
+    return s;
+  };
+  const normSelected = normalizeDate(selectedDate);
+  const todayAccounts = accounts.filter((a) => {
+    const ok = normalizeDate(a.date) === normSelected;
+    return ok;
+  });
+  // 调试日志（上线可删）
+  console.log('[AccountBook] selectedDate=', selectedDate, 'norm=', normSelected, 'accounts=', accounts.length, 'todayAccounts=', todayAccounts.length);
+  if (accounts.length > 0) {
+    console.log('[AccountBook] 前3条日期:', accounts.slice(0, 3).map(a => ({ date: a.date, norm: normalizeDate(a.date) })));
+  }
   const todayIncome = todayAccounts
     .filter((a) => a.type === 'income')
     .reduce((sum, a) => sum + a.amount, 0);

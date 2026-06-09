@@ -38,7 +38,12 @@ export function ProfitCalendar() {
 
   const getDayProfit = (year: number, month: number, day: number) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const dayAccounts = accounts.filter((a) => a.date === dateStr);
+    const dayAccounts = accounts.filter((a) => {
+      const accountDate = new Date(a.date);
+      return accountDate.getFullYear() === year && 
+             accountDate.getMonth() === month && 
+             accountDate.getDate() === day;
+    });
     const income = dayAccounts.filter((a) => a.type === 'income').reduce((sum, a) => sum + a.amount, 0);
     const expense = dayAccounts.filter((a) => a.type === 'expense').reduce((sum, a) => sum + a.amount, 0);
     return { profit: income - expense, income, expense };

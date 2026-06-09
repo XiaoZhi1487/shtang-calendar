@@ -1,6 +1,7 @@
-// =============================================
-// 沙塘圩日历 - API 服务器
-// =============================================
+// ============================================================
+// 沙塘圩日历 - API 服务器（MySQL 8.4.3）
+// 最简实现：注册/登录 + 记账查增删，每次操作直连 MySQL
+// ============================================================
 import express from 'express';
 import cors from 'cors';
 import mysql from 'mysql2/promise';
@@ -11,362 +12,291 @@ import path from 'path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// 配置
+// ---- 配置 ----
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || 'shtang-calendar-secret';
 
 const DB_CONFIG = {
-  host: process.env.DB_HOST || 'mysql6.sqlpub.com',
-  port: parseInt(process.env.DB_PORT) || 3311,
-  user: process.env.DB_USER || 'xiaott',
-  password: process.env.DB_PASSWORD || 'b1y6ukxRrVGopQH7',
-  database: process.env.DB_NAME || 'shatang_userdata',
+  host: 'mysql6.sqlpub.com',
+  port: 3311,
+  user: 'xiaott',
+  password: 'b1y6ukxRrVGopQH7',
+  database: 'shatang_userdata',
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+  connectionLimit: 5,
+  queueLimit: 0,
+  connectTimeout: 15000,
 };
 
-const app = express();
 const pool = mysql.createPool(DB_CONFIG);
 
-// 中间件
+const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// =============================================
-// 用户认证中间件
-// =============================================
-const authMiddleware = async (req, res, next) => {
+// ============================================================
+// 启动：先检查表/建表
+// ============================================================
+async function init() {
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ error: '未登录' });
+    const [tables] = await pool.query('SHOW TABLES');
+    const existing = tables.map(r => Object.values(r)[0]);
+    console.log('已有表:', existing.join(', ') || '(空)');
+
+    // users 表
+    if (!existing.includes('users')) {
+      await pool.query(`
+        CREATE TABLE users (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          phone VARCHAR(64) NOT NULL UNIQUE,
+          password VARCHAR(255) NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✅ 已创建 users 表');
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: '登录已过期，请重新登录' });
+    // accounts 表（记账）
+    if (!existing.includes('accounts')) {
+      await pool.query(`
+        CREATE TABLE accounts (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          type VARCHAR(16) NOT NULL,
+          category VARCHAR(64) NOT NULL,
+          sub_category VARCHAR(64),
+          amount DECIMAL(10,2) NOT NULL,
+          unit VARCHAR(16),
+          quantity DECIMAL(10,2),
+          note VARCHAR(512),
+          record_date DATE NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_user_id (user_id)
+        )
+      `);
+      console.log('✅ 已创建 accounts 表');
+    }
+
+    // app_version 表（版本检查）
+    if (!existing.includes('app_version')) {
+      await pool.query(`
+        CREATE TABLE app_version (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          version VARCHAR(32) NOT NULL,
+          release_note VARCHAR(512),
+          download_url VARCHAR(512),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✅ 已创建 app_version 表');
+    }
+
+    // feedback 表（意见反馈）
+    if (!existing.includes('feedback')) {
+      await pool.query(`
+        CREATE TABLE feedback (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT,
+          phone VARCHAR(64),
+          content TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_user_id (user_id),
+          INDEX idx_created_at (created_at)
+        )
+      `);
+      console.log('✅ 已创建 feedback 表');
+    }
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log('========================================');
+      console.log('🚀 服务器已启动 端口', PORT);
+      console.log('========================================');
+      console.log('   POST /api/register           注册');
+      console.log('   POST /api/login              登录');
+      console.log('   GET  /api/accounts           查询记账');
+      console.log('   POST /api/accounts           新增记账');
+      console.log('   DELETE /api/accounts/:id     删除记账');
+      console.log('   POST /api/feedback           提交意见反馈');
+      console.log('   GET  /api/health             健康检查');
+      console.log('========================================');
+    });
+  } catch (err) {
+    console.error('❌ 初始化失败:', err.message);
+    process.exit(1);
   }
-};
+}
 
-// =============================================
+// ============================================================
+// Token 认证中间件：从 Authorization: Bearer <token> 解析 userId
+// ============================================================
+function auth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  console.log('[auth] Authorization header:', header.substring(0, 80) + (header.length > 80 ? '...' : ''));
+  if (!token) return res.status(401).json({ error: '未登录' });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    console.log('[auth] 解析成功 userId:', decoded.userId);
+    req.userId = decoded.userId;
+    next();
+  } catch (e) {
+    console.error('[auth] 解析失败:', e.message);
+    res.status(401).json({ error: '登录已过期' });
+  }
+}
+
+// ============================================================
 // API 路由
-// =============================================
+// ============================================================
 
-// 注册
+// --- 注册 ---
 app.post('/api/register', async (req, res) => {
   try {
     const { phone, password } = req.body;
+    console.log('[注册] phone:', phone);
+    if (!phone || !password) return res.status(400).json({ error: '手机号和密码必填' });
 
-    // 检查手机号是否已注册
-    const [existing] = await pool.query(
-      'SELECT id FROM users WHERE phone = ?',
-      [phone]
-    );
+    const [exist] = await pool.query('SELECT id FROM users WHERE phone = ?', [phone]);
+    if (exist.length > 0) return res.status(400).json({ error: '手机号已注册' });
 
-    if (existing.length > 0) {
-      return res.status(400).json({ error: '该手机号已注册' });
-    }
-
-    // 加密密码
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 创建用户
+    const hashed = await bcrypt.hash(password, 10);
     const [result] = await pool.query(
       'INSERT INTO users (phone, password) VALUES (?, ?)',
-      [phone, hashedPassword]
+      [phone, hashed]
     );
-
-    // 生成 Token
-    const token = jwt.sign({ userId: result.insertId, phone }, JWT_SECRET, { expiresIn: '365d' });
-
-    res.json({ success: true, token, userId: result.insertId, phone });
-  } catch (error) {
-    console.error('注册失败:', error);
-    res.status(500).json({ error: '服务器错误' });
+    const userId = result.insertId;
+    const token = jwt.sign({ userId, phone }, JWT_SECRET, { expiresIn: '3650d' });
+    console.log('[注册成功] userId:', userId);
+    res.json({ success: true, token, userId, phone });
+  } catch (e) {
+    console.error('[注册失败]:', e.message);
+    res.status(500).json({ error: '服务器错误', detail: e.message });
   }
 });
 
-// 登录
+// --- 登录 ---
 app.post('/api/login', async (req, res) => {
   try {
     const { phone, password } = req.body;
+    console.log('[登录] phone:', phone);
+    if (!phone || !password) return res.status(400).json({ error: '手机号和密码必填' });
 
-    // 查找用户
-    const [users] = await pool.query(
-      'SELECT id, phone, password FROM users WHERE phone = ?',
-      [phone]
-    );
+    const [rows] = await pool.query('SELECT id, phone, password FROM users WHERE phone = ?', [phone]);
+    if (rows.length === 0) return res.status(401).json({ error: '手机号或密码错误' });
 
-    if (users.length === 0) {
-      return res.status(401).json({ error: '手机号或密码错误' });
-    }
+    const user = rows[0];
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(401).json({ error: '手机号或密码错误' });
 
-    const user = users[0];
-
-    // 验证密码
-    const isValid = await bcrypt.compare(password, user.password);
-    if (!isValid) {
-      return res.status(401).json({ error: '手机号或密码错误' });
-    }
-
-    // 生成 Token
-    const token = jwt.sign({ userId: user.id, phone: user.phone }, JWT_SECRET, { expiresIn: '365d' });
-
+    const token = jwt.sign({ userId: user.id, phone: user.phone }, JWT_SECRET, { expiresIn: '3650d' });
+    console.log('[登录成功] userId:', user.id);
     res.json({ success: true, token, userId: user.id, phone: user.phone });
-  } catch (error) {
-    console.error('登录失败:', error);
-    res.status(500).json({ error: '服务器错误' });
+  } catch (e) {
+    console.error('[登录失败]:', e.message);
+    res.status(500).json({ error: '服务器错误', detail: e.message });
   }
 });
 
-// 检查更新
-app.get('/api/version/latest', async (req, res) => {
+// --- 查询记账（查该用户全部） ---
+app.get('/api/accounts', auth, async (req, res) => {
   try {
-    const [versions] = await pool.query(
-      'SELECT * FROM app_version ORDER BY created_at DESC LIMIT 1'
+    const [rows] = await pool.query(
+      `SELECT id, type, category, 
+              sub_category AS subCategory, 
+              amount, unit, quantity, note, 
+              DATE_FORMAT(record_date, '%Y-%m-%d') AS recordDate
+       FROM accounts WHERE user_id = ? ORDER BY record_date DESC, id DESC`,
+      [req.userId]
     );
-
-    if (versions.length > 0) {
-      res.json({
-        hasUpdate: true,
-        version: versions[0].version,
-        releaseNote: versions[0].release_note,
-        downloadUrl: versions[0].download_url,
-      });
+    // 打印第一条样本以便排查
+    if (rows.length > 0) {
+      console.log(`[查询记账] userId ${req.userId}: ${rows.length} 条, 第一条 recordDate=${JSON.stringify(rows[0].recordDate)} (type=${typeof rows[0].recordDate})`);
     } else {
-      res.json({ hasUpdate: false, version: '', releaseNote: '', downloadUrl: '' });
+      console.log(`[查询记账] userId ${req.userId}: 0 条`);
     }
-  } catch (error) {
-    console.error('检查更新失败:', error);
-    res.status(500).json({ hasUpdate: false, version: '', releaseNote: '', downloadUrl: '', error: '服务器错误' });
+    res.json({ accounts: rows });
+  } catch (e) {
+    console.error('[查询记账失败]:', e.message);
+    res.status(500).json({ error: '服务器错误', detail: e.message });
   }
 });
 
-// 添加新版本（简单密码保护）
-app.post('/api/version/add', async (req, res) => {
-  try {
-    const { version, releaseNote, downloadUrl, secret } = req.body;
-    
-    // 简单保护（生产环境应该用更安全的方式）
-    if (secret !== 'shtang123') {
-      return res.status(401).json({ error: '未授权' });
-    }
-    
-    if (!version || !downloadUrl) {
-      return res.status(400).json({ error: '参数不完整' });
-    }
-    
-    await pool.query(
-      'INSERT INTO app_version (version, release_note, download_url) VALUES (?, ?, ?)',
-      [version, releaseNote || '新版本发布', downloadUrl]
-    );
-    
-    res.json({ success: true, message: `版本 ${version} 添加成功` });
-  } catch (error) {
-    console.error('添加版本失败:', error);
-    res.status(500).json({ error: '服务器错误' });
-  }
-});
-
-// =============================================
-// 记账 API
-// =============================================
-
-// 获取记账列表
-app.get('/api/accounts', authMiddleware, async (req, res) => {
-  try {
-    const { startDate, endDate, type } = req.query;
-    let query = 'SELECT * FROM accounts WHERE user_id = ?';
-    const params = [req.user.userId];
-
-    if (startDate && endDate) {
-      query += ' AND record_date BETWEEN ? AND ?';
-      params.push(startDate, endDate);
-    }
-
-    if (type) {
-      query += ' AND type = ?';
-      params.push(type);
-    }
-
-    query += ' ORDER BY record_date DESC, created_at DESC';
-
-    const [accounts] = await pool.query(query, params);
-    res.json({ accounts });
-  } catch (error) {
-    console.error('获取记账列表失败:', error);
-    res.status(500).json({ error: '服务器错误' });
-  }
-});
-
-// 添加记账
-app.post('/api/accounts', authMiddleware, async (req, res) => {
+// --- 新增记账 ---
+app.post('/api/accounts', auth, async (req, res) => {
   try {
     const { type, category, subCategory, amount, unit, quantity, note, recordDate } = req.body;
-
+    if (!type || !category || !amount || !recordDate) {
+      return res.status(400).json({ error: '参数不完整' });
+    }
     const [result] = await pool.query(
-      `INSERT INTO accounts 
-       (user_id, type, category, sub_category, amount, unit, quantity, note, record_date) 
+      `INSERT INTO accounts (user_id, type, category, sub_category, amount, unit, quantity, note, record_date)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.user.userId, type, category, subCategory, amount, unit, quantity, note, recordDate]
+      [req.userId, type, category, subCategory || null, Number(amount), unit || null, quantity || null, note || null, recordDate]
     );
-
+    console.log(`[新增记账] userId ${req.userId}, id ${result.insertId}`);
     res.json({ success: true, id: result.insertId });
-  } catch (error) {
-    console.error('添加记账失败:', error);
-    res.status(500).json({ error: '服务器错误' });
+  } catch (e) {
+    console.error('[新增记账失败]:', e.message);
+    res.status(500).json({ error: '服务器错误', detail: e.message });
   }
 });
 
-// =============================================
-// 日记 API
-// =============================================
-
-// 获取日记列表
-app.get('/api/diaries', authMiddleware, async (req, res) => {
+// --- 删除记账（必须是该用户自己的） ---
+app.delete('/api/accounts/:id', auth, async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
-    let query = 'SELECT * FROM diaries WHERE user_id = ?';
-    const params = [req.user.userId];
+    const id = req.params.id;
+    const [result] = await pool.query(
+      'DELETE FROM accounts WHERE id = ? AND user_id = ?',
+      [id, req.userId]
+    );
+    console.log(`[删除记账] userId ${req.userId}, id ${id}, 影响行 ${result.affectedRows}`);
+    res.json({ success: result.affectedRows > 0 });
+  } catch (e) {
+    console.error('[删除记账失败]:', e.message);
+    res.status(500).json({ error: '服务器错误', detail: e.message });
+  }
+});
 
-    if (startDate && endDate) {
-      query += ' AND record_date BETWEEN ? AND ?';
-      params.push(startDate, endDate);
+// --- 提交意见反馈（允许登录/未登录用户提交）---
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content || !content.trim()) {
+      return res.status(400).json({ error: '反馈内容不能为空' });
+    }
+    if (content.length > 2000) {
+      return res.status(400).json({ error: '反馈内容过长（最多 2000 字）' });
     }
 
-    query += ' ORDER BY record_date DESC, created_at DESC';
-
-    const [diaries] = await pool.query(query, params);
-    res.json({ diaries });
-  } catch (error) {
-    console.error('获取日记列表失败:', error);
-    res.status(500).json({ error: '服务器错误' });
-  }
-});
-
-// 添加日记
-app.post('/api/diaries', authMiddleware, async (req, res) => {
-  try {
-    const { title, content, recordDate } = req.body;
+    // 尝试解析 token（有则记录用户信息，没有也允许提交）
+    let userId = null;
+    let phone = null;
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userId = decoded.userId;
+        phone = decoded.phone || null;
+      } catch (e) { /* token 无效也不拒绝提交 */ }
+    }
 
     const [result] = await pool.query(
-      'INSERT INTO diaries (user_id, title, content, record_date) VALUES (?, ?, ?, ?)',
-      [req.user.userId, title, content, recordDate]
+      'INSERT INTO feedback (user_id, phone, content) VALUES (?, ?, ?)',
+      [userId, phone, content.trim()]
     );
-
+    console.log(`[反馈提交] id=${result.insertId}, user_id=${userId}, phone=${phone}, 长度=${content.length}`);
     res.json({ success: true, id: result.insertId });
-  } catch (error) {
-    console.error('添加日记失败:', error);
-    res.status(500).json({ error: '服务器错误' });
+  } catch (e) {
+    console.error('[反馈提交失败]:', e.message);
+    res.status(500).json({ error: '服务器错误', detail: e.message });
   }
 });
 
-// =============================================
-// 数据同步
-// =============================================
-
-// 上传数据（先清空该用户数据，再整体写入——支持删除操作的同步）
-app.post('/api/sync/upload', authMiddleware, async (req, res) => {
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-
-    const { accounts, diaries } = req.body;
-
-    // 先清空该用户的现有数据
-    await conn.query('DELETE FROM accounts WHERE user_id = ?', [req.user.userId]);
-    await conn.query('DELETE FROM diaries WHERE user_id = ?', [req.user.userId]);
-
-    // 写入记账
-    if (accounts && accounts.length > 0) {
-      for (const account of accounts) {
-        await conn.query(
-          `INSERT INTO accounts 
-           (user_id, type, category, sub_category, amount, unit, quantity, note, record_date) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            req.user.userId,
-            account.type,
-            account.category,
-            account.subCategory ?? null,
-            account.amount,
-            account.unit ?? null,
-            account.quantity ?? null,
-            account.note ?? null,
-            account.recordDate
-          ]
-        );
-      }
-    }
-
-    // 写入日记
-    if (diaries && diaries.length > 0) {
-      for (const diary of diaries) {
-        await conn.query(
-          'INSERT INTO diaries (user_id, content, record_date) VALUES (?, ?, ?)',
-          [req.user.userId, diary.content, diary.recordDate]
-        );
-      }
-    }
-
-    await conn.commit();
-    res.json({ success: true });
-  } catch (error) {
-    try { await conn.rollback(); } catch {}
-    console.error('上传数据失败:', error);
-    res.status(500).json({ error: '服务器错误' });
-  } finally {
-    conn.release();
-  }
-});
-
-// 下载数据（字段名转为 camelCase，方便前端直接使用）
-app.get('/api/sync/download', authMiddleware, async (req, res) => {
-  try {
-    const [accountsRaw] = await pool.query(
-      'SELECT id, type, category, sub_category AS subCategory, amount, unit, quantity, note, record_date AS recordDate FROM accounts WHERE user_id = ? ORDER BY record_date DESC',
-      [req.user.userId]
-    );
-
-    const [diariesRaw] = await pool.query(
-      'SELECT content, record_date AS recordDate FROM diaries WHERE user_id = ? ORDER BY record_date DESC',
-      [req.user.userId]
-    );
-
-    res.json({ accounts: accountsRaw, diaries: diariesRaw });
-  } catch (error) {
-    console.error('下载数据失败:', error);
-    res.status(500).json({ error: '服务器错误' });
-  }
-});
-
-// 健康检查
-app.get('/api/health', (req, res) => {
+// --- 健康检查 ---
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// 启动服务器
-app.listen(PORT, '0.0.0.0', () => {
-  console.log('========================================');
-  console.log('🚀 服务器已启动！');
-  console.log('========================================');
-  console.log(`📡 本地访问：http://localhost:${PORT}`);
-  console.log(`📡 网络访问：http://0.0.0.0:${PORT}`);
-  console.log('');
-  console.log('📋 API 端点：');
-  console.log('   - GET  /api/health       健康检查');
-  console.log('   - POST /api/login        登录');
-  console.log('   - POST /api/register     注册');
-  console.log('   - GET  /api/version/latest  检查更新');
-  console.log('   - GET  /api/accounts     记账列表');
-  console.log('   - POST /api/accounts     添加记账');
-  console.log('   - GET  /api/diaries      日记列表');
-  console.log('   - POST /api/diaries      添加日记');
-  console.log('   - POST /api/sync/upload  上传数据');
-  console.log('   - GET  /api/sync/download 下载数据');
-  console.log('========================================');
-});
+init();

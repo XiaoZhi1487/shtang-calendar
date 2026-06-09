@@ -46,8 +46,7 @@ function removeAccount(phone: string) {
 
 export function AccountSwitchModal({ isOpen, onClose }: AccountSwitchModalProps) {
   const { theme } = useThemeStore();
-  const { user, login, isLoggedIn } = useUserStore();
-  const { loadFromCloud, syncToCloud, cloudAccounts, cloudDiaries } = useAppStore();
+  const { user, login } = useUserStore();
 
   const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
   const [showLogin, setShowLogin] = useState(false);
@@ -75,11 +74,8 @@ export function AccountSwitchModal({ isOpen, onClose }: AccountSwitchModalProps)
       const { success, error: loginError } = await login(phone, password);
       if (success) {
         saveAccount(phone);
-        // 登录成功后同步当前数据到云端
-        const token = useUserStore.getState().token;
-        if (token) {
-          await syncToCloud(token);
-        }
+        // 登录成功后 login() 内部已调用 loadFromCloud 从云端拉取该账号数据
+        // 此处不要再调用 syncToCloud，避免将上一个账号的本地数据上传覆盖
         onClose();
       } else {
         setError(loginError || '登录失败');

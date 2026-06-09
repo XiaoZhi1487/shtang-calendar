@@ -1,5 +1,13 @@
 import { Solar } from 'lunar-typescript';
 
+// 获取本地日期字符串 (YYYY-MM-DD)，避免时区问题
+export function getLocalDateString(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // 沙塘圩日：农历初一、初四、初七、初十、十三、十六、十九、廿二、廿五、廿八
 export function isMarketDay(year: number, month: number, day: number): boolean {
   try {
