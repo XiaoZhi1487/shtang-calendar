@@ -1,6 +1,9 @@
 // ============================================================
 // 沙塘圩日历 - API 服务器（MySQL 8.4.3）
 // 最简实现：注册/登录 + 记账查增删，每次操作直连 MySQL
+// ------------------------------------------------------------
+// 配置文件：请在 config.js 中填写你的数据库和密钥信息
+// 部署步骤：将 config.example.js 复制为 config.js 并填入配置
 // ============================================================
 import express from 'express';
 import cors from 'cors';
@@ -9,24 +12,14 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { config } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ---- 配置 ----
-const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'shtang-calendar-secret';
-
-const DB_CONFIG = {
-  host: 'mysql6.sqlpub.com',
-  port: 3311,
-  user: 'xiaott',
-  password: 'b1y6ukxRrVGopQH7',
-  database: 'shatang_userdata',
-  waitForConnections: true,
-  connectionLimit: 5,
-  queueLimit: 0,
-  connectTimeout: 15000,
-};
+// ---- 配置从 config.js 读取 ----
+const PORT = config.PORT;
+const JWT_SECRET = config.JWT_SECRET;
+const DB_CONFIG = config.database;
 
 const pool = mysql.createPool(DB_CONFIG);
 
@@ -311,8 +304,8 @@ app.post('/api/version/add', async (req, res) => {
       return res.status(400).json({ error: '版本号、下载链接和发布秘钥必填' });
     }
     
-    // 验证发布秘钥（从环境变量读取，默认为 shtang2024）
-    const PUBLISH_SECRET = process.env.PUBLISH_SECRET || 'shtang2024';
+    // 验证发布秘钥（从 config.js 读取）
+    const PUBLISH_SECRET = config.PUBLISH_SECRET;
     if (secret !== PUBLISH_SECRET) {
       return res.status(403).json({ error: '发布秘钥错误' });
     }
