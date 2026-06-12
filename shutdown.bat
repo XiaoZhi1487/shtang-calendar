@@ -1,3 +1,0 @@
-@echo off
-echo 即将在 10 秒后关闭电脑...
-shutdown /s /t 10
