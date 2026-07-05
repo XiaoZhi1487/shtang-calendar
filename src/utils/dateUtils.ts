@@ -8,13 +8,51 @@ export function getLocalDateString(date: Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
-// 沙塘圩日：农历初一、初四、初七、初十、十三、十六、十九、廿二、廿五、廿八
+/**
+ * 将日期转为 YYYY-MM-DD 格式的数字值（方便计算差值）
+ */
+export function dateToValue(year: number, month: number, day: number): number {
+  return new Date(year, month, day).getTime();
+}
+
+/**
+ * 计算两个日期之间的天数差
+ */
+export function daysBetween(
+  y1: number, m1: number, d1: number,
+  y2: number, m2: number, d2: number
+): number {
+  const t1 = new Date(y1, m1, d1).getTime();
+  const t2 = new Date(y2, m2, d2).getTime();
+  return Math.round((t1 - t2) / (1000 * 60 * 60 * 24));
+}
+
+/**
+ * 判断某天是否为街日（新历，基于基准日和间隔天数）
+ * @param baseDate 基准日期 YYYY-MM-DD
+ * @param intervalDays 间隔天数（如3表示每3天一街）
+ */
+export function isMarketDaySolar(
+  year: number, month: number, day: number,
+  baseDate: string,
+  intervalDays: number
+): boolean {
+  try {
+    const [bY, bM, bD] = baseDate.split('-').map(Number);
+    const diff = daysBetween(year, month, day, bY, bM - 1, bD);
+    return diff >= 0 && diff % intervalDays === 0;
+  } catch {
+    return false;
+  }
+}
+
+// 沙塘圩日（旧版农历算法，保留兼容）
 export function isMarketDay(year: number, month: number, day: number): boolean {
   try {
     const solar = Solar.fromYmd(year, month + 1, day);
     const lunar = solar.getLunar();
     const lunarDay = lunar.getDay();
-    return (lunarDay - 1) % 3 === 0; // 每3天一圩：1,4,7,10...
+    return (lunarDay - 1) % 3 === 0;
   } catch {
     return false;
   }
