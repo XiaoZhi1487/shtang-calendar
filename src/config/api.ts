@@ -1,10 +1,6 @@
-
 // API 配置
-// 使用线上 Render 后端地址
+// 优先读取环境变量 VITE_API_BASE，否则使用默认线上地址
+const ENV_API = typeof import.meta !== 'undefined' ? import.meta.env.VITE_API_BASE as string : '';
 const RENDER_API_BASE = 'https://shtang-calendar.onrender.com/api';
 
-// 始终使用线上地址（Render 部署的后端）
-export const API_BASE = RENDER_API_BASE;
-
-console.log('🌐 API 地址:', API_BASE);
-
+export const API_BASE = ENV_API || RENDER_API_BASE;

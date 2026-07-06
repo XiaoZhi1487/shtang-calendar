@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Calendar, BarChart3, ArrowUpDown, List, Grid } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Calendar, BarChart3, ArrowUpDown, MapPin } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { useThemeStore } from '../../store/themeStore';
-import { getMonthName, weekDays } from '../../utils/dateUtils';
+import { useMarketDayStore } from '../../store/marketDayStore';
+import { getMonthName, weekDays, isMarketDaySolar } from '../../utils/dateUtils';
 
 type ViewMode = 'month' | 'year';
 type SortType = 'date' | 'profit' | 'income' | 'expense';
@@ -25,6 +26,7 @@ function getFontSize(amount: number): string {
 export function ProfitCalendar() {
   const { accounts } = useAppStore();
   const { theme } = useThemeStore();
+  const { marketDayName, baseDate, intervalDays } = useMarketDayStore();
   const [today] = useState(new Date());
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
@@ -58,6 +60,27 @@ export function ProfitCalendar() {
     const expense = monthAccounts.filter((a) => a.type === 'expense').reduce((sum, a) => sum + a.amount, 0);
     return { profit: income - expense, income, expense, count: monthAccounts.length };
   };
+
+  // 统计街日 vs 非街日收益
+  const marketDayStats = useMemo(() => {
+    let marketIncome = 0, marketExpense = 0, marketCount = 0;
+    let normalIncome = 0, normalExpense = 0, normalCount = 0;
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const { profit, income, expense } = getDayProfit(currentYear, currentMonth, day);
+      if (profit === 0 && income === 0 && expense === 0) continue;
+      if (isMarketDaySolar(currentYear, currentMonth, day, baseDate, intervalDays)) {
+        marketIncome += income;
+        marketExpense += expense;
+        marketCount++;
+      } else {
+        normalIncome += income;
+        normalExpense += expense;
+        normalCount++;
+      }
+    }
+    return { marketIncome, marketExpense, marketProfit: marketIncome - marketExpense, marketCount, normalIncome, normalExpense, normalProfit: normalIncome - normalExpense, normalCount };
+  }, [currentYear, currentMonth, daysInMonth, baseDate, intervalDays]);
 
   const getYearMonthsWithData = () => {
     const monthsWithData: { month: number; profit: number; income: number; expense: number; count: number }[] = [];
@@ -153,6 +176,7 @@ export function ProfitCalendar() {
     for (let day = 1; day <= daysInMonth; day++) {
       const { profit } = getDayProfit(currentYear, currentMonth, day);
       const todayIs = day === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
+      const isMarketDay = isMarketDaySolar(currentYear, currentMonth, day, baseDate, intervalDays);
       const isPositive = profit > 0;
       const isNegative = profit < 0;
       const fontSize = getFontSize(profit);
@@ -161,10 +185,16 @@ export function ProfitCalendar() {
         <div
           key={day}
           className={`h-14 sm:h-16 flex flex-col items-center justify-center rounded-xl transition-all duration-300 relative cursor-pointer
+            ${isMarketDay ? 'ring-1 ring-rose-500/30' : ''}
             ${isPositive ? 'bg-rose-500/10' : isNegative ? 'bg-emerald-500/10' : ''}
             ${todayIs ? 'bg-rose-500/80' : ''}
           `}
         >
+          {isMarketDay && (
+            <div className="absolute -top-0.5 -right-0.5 bg-rose-500 text-[8px] font-bold px-1 rounded-full text-white z-10">
+              圩
+            </div>
+          )}
           <span className={`text-base font-bold ${
             todayIs ? 'text-white' : (isPositive ? 'text-rose-500' : isNegative ? 'text-emerald-500' : 'text-slate-400')
           }`}>
@@ -267,6 +297,32 @@ export function ProfitCalendar() {
         </div>
       </div>
 
+      {/* 街日收益对比栏 */}
+      {viewMode === 'month' && (marketDayStats.marketCount > 0 || marketDayStats.normalCount > 0) && (
+        <div className={`flex gap-2 p-2.5 rounded-xl border ${
+          theme === 'dark' ? 'bg-slate-800/50 border-slate-700/30' : 'bg-amber-50/60 border-amber-200/50'
+        }`}>
+          <div className="flex-1 text-center">
+            <div className="flex items-center justify-center gap-1 mb-1">
+              <MapPin size={14} className="text-rose-500" />
+              <span className="text-xs font-bold text-rose-500">{marketDayName}</span>
+            </div>
+            <span className={`text-base font-bold ${marketDayStats.marketProfit >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+              {marketDayStats.marketProfit >= 0 ? '+' : ''}¥{formatNumber(marketDayStats.marketProfit)}
+            </span>
+            <div className="text-xs text-slate-400">{marketDayStats.marketCount}天</div>
+          </div>
+          <div className="w-px bg-slate-600/30" />
+          <div className="flex-1 text-center">
+            <div className="text-xs font-bold text-slate-400 mb-1">非街日</div>
+            <span className={`text-base font-bold ${marketDayStats.normalProfit >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+              {marketDayStats.normalProfit >= 0 ? '+' : ''}¥{formatNumber(marketDayStats.normalProfit)}
+            </span>
+            <div className="text-xs text-slate-400">{marketDayStats.normalCount}天</div>
+          </div>
+        </div>
+      )}
+
       {/* Month/Year selector */}
       <div className="flex items-center justify-between">
         <button
@@ -315,6 +371,24 @@ export function ProfitCalendar() {
       {/* Calendar/Year grid */}
       <div className="bg-white/5 rounded-xl p-3">
         {viewMode === 'month' ? renderMonthView() : renderYearView()}
+      </div>
+
+      {/* 图例 */}
+      <div className={`flex items-center justify-center gap-4 text-xs ${
+        theme === 'dark' ? 'text-slate-400' : 'text-amber-700'
+      }`}>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-rose-500/30 ring-1 ring-rose-500/50" />
+          <span>{marketDayName}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <TrendingUp size={12} className="text-rose-500" />
+          <span>盈利</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <TrendingDown size={12} className="text-emerald-500" />
+          <span>亏损</span>
+        </div>
       </div>
 
       {/* Month details */}

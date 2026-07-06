@@ -12,10 +12,9 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom gradient background */
+/* 由 App.tsx 中的 PageContainer 管理背景，这里只保留全局重置 */
 #root {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
 }
 
 ::-webkit-scrollbar {
@@ -45,4 +44,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background: linear-gradient(145deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9));
   border: 1px solid rgba(51, 65, 85, 0.6);
   backdrop-filter: blur(20px);
+}
+
+/* 禁用长按选择（移动端更接近原生体验） */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
 }

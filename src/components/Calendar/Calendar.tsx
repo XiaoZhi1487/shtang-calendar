@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, MapPin, Settings, X } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { ChevronLeft, ChevronRight, MapPin, Settings, X, CalendarDays } from 'lucide-react';
 import {
   isMarketDaySolar,
   getDaysInMonth,
@@ -10,25 +10,24 @@ import {
 import { useMarketDayStore } from '../../store/marketDayStore';
 import { useThemeStore } from '../../store/themeStore';
 
+// 最小滑动距离（px）才触发翻页
+const SWIPE_THRESHOLD = 40;
+
 export function Calendar() {
-  const [today, setToday] = useState(new Date());
+  const today = useRef(new Date()).current;
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [showSettings, setShowSettings] = useState(false);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
 
-  // 设置面板临时值（修改后点"保存"才写入 store）
   const { marketDayName, baseDate, intervalDays, setMarketDayName, setBaseDate, setIntervalDays } = useMarketDayStore();
   const [tempName, setTempName] = useState(marketDayName);
   const [tempBaseDate, setTempBaseDate] = useState(baseDate);
   const [tempInterval, setTempInterval] = useState(intervalDays);
   const { theme } = useThemeStore();
 
-  // Refresh today's date
-  useEffect(() => {
-    setToday(new Date());
-  }, []);
-
-  // 当设置面板打开时同步临时值
   useEffect(() => {
     if (showSettings) {
       setTempName(marketDayName);
@@ -40,23 +39,28 @@ export function Calendar() {
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
-  const prevMonth = () => {
-    if (currentMonth === 0) {
-      setCurrentYear(currentYear - 1);
-      setCurrentMonth(11);
-    } else {
-      setCurrentMonth(currentMonth - 1);
-    }
-  };
+  const goToMonth = useCallback((year: number, month: number) => {
+    setCurrentYear(year);
+    setCurrentMonth(month);
+  }, []);
 
-  const nextMonth = () => {
-    if (currentMonth === 11) {
-      setCurrentYear(currentYear + 1);
-      setCurrentMonth(0);
-    } else {
-      setCurrentMonth(currentMonth + 1);
-    }
-  };
+  const prevMonth = useCallback(() => {
+    goToMonth(
+      currentMonth === 0 ? currentYear - 1 : currentYear,
+      currentMonth === 0 ? 11 : currentMonth - 1
+    );
+  }, [currentYear, currentMonth, goToMonth]);
+
+  const nextMonth = useCallback(() => {
+    goToMonth(
+      currentMonth === 11 ? currentYear + 1 : currentYear,
+      currentMonth === 11 ? 0 : currentMonth + 1
+    );
+  }, [currentYear, currentMonth, goToMonth]);
+
+  const goToToday = useCallback(() => {
+    goToMonth(today.getFullYear(), today.getMonth());
+  }, [today, goToMonth]);
 
   const isToday = (day: number) =>
     day === today.getDate() &&
@@ -68,6 +72,22 @@ export function Calendar() {
     setBaseDate(tempBaseDate);
     setIntervalDays(Math.max(1, tempInterval));
     setShowSettings(false);
+  };
+
+  // 触摸事件
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+    // 只在水平滑动距离 > 垂直滑动距离时才切换月份（防止滚动误触）
+    if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx > 0) prevMonth();
+      else nextMonth();
+    }
   };
 
   const renderDays = () => {
@@ -98,7 +118,7 @@ export function Calendar() {
         <div
           key={day}
           className={`
-            h-14 sm:h-16 flex flex-col items-center justify-center rounded-2xl text-base font-medium transition-all duration-300 relative
+            h-14 sm:h-16 flex flex-col items-center justify-center rounded-2xl text-base font-medium transition-all duration-300 relative no-select
             ${marketDay
               ? 'bg-gradient-to-br from-rose-500 to-orange-400 text-white shadow-lg shadow-rose-500/40 scale-105'
               : todayIs
@@ -145,6 +165,8 @@ export function Calendar() {
     return days;
   };
 
+  const isCurrentMonth = currentYear === today.getFullYear() && currentMonth === today.getMonth();
+
   return (
     <div className="px-2 py-4 relative">
       {/* Header */}
@@ -159,11 +181,26 @@ export function Calendar() {
           >
             <ChevronLeft size={28} />
           </button>
-          <h2 className={`text-2xl sm:text-3xl font-extrabold tracking-wider ${
-            theme === 'dark' ? 'text-white' : 'text-amber-900'
-          }`}>
-            {currentYear}年 {getMonthName(currentMonth)}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className={`text-2xl sm:text-3xl font-extrabold tracking-wider ${
+              theme === 'dark' ? 'text-white' : 'text-amber-900'
+            }`}>
+              {currentYear}年 {getMonthName(currentMonth)}
+            </h2>
+            {!isCurrentMonth && (
+              <button
+                onClick={goToToday}
+                className={`p-1.5 rounded-lg transition-all duration-200 ${
+                  theme === 'dark'
+                    ? 'text-rose-400 hover:bg-slate-700/40'
+                    : 'text-rose-600 hover:bg-amber-200/50'
+                }`}
+                title="回到今天"
+              >
+                <CalendarDays size={20} />
+              </button>
+            )}
+          </div>
           <button onClick={nextMonth}
             className={`p-2 sm:p-2.5 rounded-xl transition-all duration-200 ${
               theme === 'dark'
@@ -214,10 +251,15 @@ export function Calendar() {
         ))}
       </div>
 
-      {/* 日历网格 */}
-      <div className={`grid grid-cols-7 gap-1.5 sm:gap-2.5 rounded-xl p-3 ${
-        theme === 'dark' ? 'bg-white/5' : 'bg-amber-50/60'
-      }`}>
+      {/* 日历网格 - 支持触摸滑动 */}
+      <div
+        ref={gridRef}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+        className={`grid grid-cols-7 gap-1.5 sm:gap-2.5 rounded-xl p-3 touch-pan-y ${
+          theme === 'dark' ? 'bg-white/5' : 'bg-amber-50/60'
+        }`}
+      >
         {renderDays()}
       </div>
 
@@ -240,6 +282,13 @@ export function Calendar() {
           <span>|</span>
           <span>每{intervalDays}天一街</span>
         </div>
+      </div>
+
+      {/* 触摸操作提示 */}
+      <div className={`mt-3 text-center text-xs opacity-40 ${
+        theme === 'dark' ? 'text-slate-400' : 'text-amber-700'
+      }`}>
+        ← 左右滑动切换月份 →
       </div>
 
       {/* 设置悬浮面板 */}

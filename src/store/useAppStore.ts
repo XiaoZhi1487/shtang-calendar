@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { API_BASE } from '../config/api';
 import { useUserStore } from './userStore';
+import { logger } from '../lib/logger';
 
 export interface AccountEntry {
   id: string;
@@ -24,6 +25,7 @@ interface AppState {
   accounts: AccountEntry[];
   // 操作
   addAccount: (entry: Omit<AccountEntry, 'id'>) => Promise<boolean>;
+  updateAccount: (id: string, entry: Partial<Omit<AccountEntry, 'id'>>) => Promise<boolean>;
   deleteAccount: (id: string) => Promise<boolean>;
   refreshAccounts: () => Promise<boolean>;
   clearCloudAccounts: () => void;
@@ -83,7 +85,7 @@ export const useAppStore = create<AppState>()(
       // 清空云端数据（登出时调用）
       clearCloudAccounts: () => {
         set({ cloudAccounts: [], accounts: get().localAccounts });
-        console.log('[清空云端数据] 已清空，切换到本地数据');
+        logger.log('[清空云端数据] 已清空，切换到本地数据');
       },
 
       // 拉取数据（已登录 → MySQL；未登录 → 使用本地数据）
@@ -93,25 +95,25 @@ export const useAppStore = create<AppState>()(
           // 未登录：使用本地数据
           const local = get().localAccounts;
           set({ accounts: local });
-          console.log('[刷新] 未登录，使用本地数据，共', local.length, '条');
+          logger.log('[刷新] 未登录，使用本地数据，共', local.length, '条');
           return true;
         }
         try {
-          console.log('[刷新] 从 MySQL 拉取...');
+          logger.log('[刷新] 从 MySQL 拉取...');
           const res = await fetch(`${API_BASE}/accounts`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!res.ok) {
             console.error('[刷新] HTTP 失败:', res.status);
             if (res.status === 401) {
-              console.log('[刷新] token 已过期，自动登出');
+              logger.log('[刷新] token 已过期，自动登出');
               useUserStore.getState().logout();
             }
             return false;
           }
           const data = await res.json();
           const list = (data.accounts || []).map(fromDb);
-          console.log(`[刷新] 成功 ${list.length} 条`, list.slice(0, 3).map(a => ({ id: a.id, date: a.date, type: a.type, amount: a.amount })));
+          logger.log(`[刷新] 成功 ${list.length} 条`, list.slice(0, 3).map(a => ({ id: a.id, date: a.date, type: a.type, amount: a.amount })));
           set({ cloudAccounts: list, accounts: list });
           return true;
         } catch (e) {
@@ -123,12 +125,12 @@ export const useAppStore = create<AppState>()(
       // 添加一条
       addAccount: async (entry) => {
         const token = hasToken();
-        console.log('[添加] token:', token ? '存在' : '不存在', token?.substring(0, 20) + '...');
+        logger.log('[添加] token:', token ? '存在' : '不存在', token?.substring(0, 20) + '...');
 
         if (token) {
           // 已登录：写 MySQL
           try {
-            console.log('[添加] 写入 MySQL:', entry);
+            logger.log('[添加] 写入 MySQL:', entry);
             const res = await fetch(`${API_BASE}/accounts`, {
               method: 'POST',
               headers: {
@@ -150,12 +152,12 @@ export const useAppStore = create<AppState>()(
               console.error('[添加] HTTP 失败:', res.status);
               if (res.status === 401) {
                 // token 过期，自动登出
-                console.log('[添加] token 已过期，自动登出');
+                logger.log('[添加] token 已过期，自动登出');
                 useUserStore.getState().logout();
               }
               return false;
             }
-            console.log('[添加] MySQL 成功');
+            logger.log('[添加] MySQL 成功');
             await get().refreshAccounts();
             return true;
           } catch (e) {
@@ -169,7 +171,47 @@ export const useAppStore = create<AppState>()(
             id: Date.now().toString() + Math.floor(Math.random() * 1000),
           };
           const next = [...get().localAccounts, newEntry];
-          console.log('[添加] 本地:', newEntry);
+          logger.log('[添加] 本地:', newEntry);
+          set({ localAccounts: next, accounts: next });
+          return true;
+        }
+      },
+
+      // 更新
+      updateAccount: async (id, entry) => {
+        const token = hasToken();
+        if (token) {
+          try {
+            const res = await fetch(`${API_BASE}/accounts/${id}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                type: entry.type,
+                category: entry.category,
+                subCategory: entry.subCategory || null,
+                amount: entry.amount,
+                unit: entry.unit || null,
+                quantity: entry.quantity || null,
+                note: entry.note || null,
+                recordDate: entry.date,
+              }),
+            });
+            if (!res.ok) {
+              if (res.status === 401) useUserStore.getState().logout();
+              return false;
+            }
+            await get().refreshAccounts();
+            return true;
+          } catch {
+            return false;
+          }
+        } else {
+          const next = get().localAccounts.map((a) =>
+            a.id === id ? { ...a, ...entry } : a
+          );
           set({ localAccounts: next, accounts: next });
           return true;
         }
@@ -182,7 +224,7 @@ export const useAppStore = create<AppState>()(
         if (token) {
           // 已登录：删 MySQL
           try {
-            console.log('[删除] MySQL id:', id);
+            logger.log('[删除] MySQL id:', id);
             const res = await fetch(`${API_BASE}/accounts/${id}`, {
               method: 'DELETE',
               headers: { Authorization: `Bearer ${token}` },
@@ -190,12 +232,12 @@ export const useAppStore = create<AppState>()(
             if (!res.ok) {
               console.error('[删除] HTTP 失败:', res.status);
               if (res.status === 401) {
-                console.log('[删除] token 已过期，自动登出');
+                logger.log('[删除] token 已过期，自动登出');
                 useUserStore.getState().logout();
               }
               return false;
             }
-            console.log('[删除] MySQL 成功');
+            logger.log('[删除] MySQL 成功');
             await get().refreshAccounts();
             return true;
           } catch (e) {
@@ -205,7 +247,7 @@ export const useAppStore = create<AppState>()(
         } else {
           // 未登录：删本地
           const next = get().localAccounts.filter((a) => a.id !== id);
-          console.log('[删除] 本地:', id);
+          logger.log('[删除] 本地:', id);
           set({ localAccounts: next, accounts: next });
           return true;
         }

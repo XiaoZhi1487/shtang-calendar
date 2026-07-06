@@ -3,6 +3,7 @@ import { Lock, Shield, User, Eye, EyeOff, Check } from 'lucide-react';
 import { SubPageContainer } from '../components/Layout/SubPageContainer';
 import { useThemeStore } from '../store/themeStore';
 import { useUserStore } from '../store/userStore';
+import { API_BASE } from '../config/api';
 
 interface AccountSecurityPageProps {
   onBack: () => void;
@@ -10,7 +11,7 @@ interface AccountSecurityPageProps {
 
 export function AccountSecurityPage({ onBack }: AccountSecurityPageProps) {
   const { theme } = useThemeStore();
-  const { user } = useUserStore();
+  const { user, token } = useUserStore();
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -34,16 +35,36 @@ export function AccountSecurityPage({ onBack }: AccountSecurityPageProps) {
       return;
     }
 
+    if (!token) {
+      setError('请先登录');
+      return;
+    }
+
     setLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setLoading(false);
-    setSuccess(true);
-    
-    setTimeout(() => {
-      setPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    }, 2000);
+    try {
+      const res = await fetch(`${API_BASE}/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ oldPassword: password, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || '修改失败');
+      }
+      setSuccess(true);
+      setTimeout(() => {
+        setPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      }, 2000);
+    } catch (err: any) {
+      setError(err.message || '网络错误');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

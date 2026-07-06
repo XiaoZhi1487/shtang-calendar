@@ -253,6 +253,24 @@ app.delete('/api/accounts/:id', auth, async (req, res) => {
   }
 });
 
+// --- 更新记账 ---
+app.put('/api/accounts/:id', auth, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { type, category, subCategory, amount, unit, quantity, note, recordDate } = req.body;
+    const [result] = await pool.query(
+      `UPDATE accounts SET type=?, category=?, sub_category=?, amount=?, unit=?, quantity=?, note=?, record_date=?
+       WHERE id=? AND user_id=?`,
+      [type, category, subCategory || null, Number(amount), unit || null, quantity || null, note || null, recordDate, id, req.userId]
+    );
+    logger.log(`[更新记账] userId ${req.userId}, id ${id}, 影响行 ${result.affectedRows}`);
+    res.json({ success: result.affectedRows > 0 });
+  } catch (e) {
+    console.error('[更新记账失败]:', e.message);
+    res.status(500).json({ error: '服务器错误', detail: e.message });
+  }
+});
+
 // --- 提交意见反馈（允许登录/未登录用户提交）---
 app.post('/api/feedback', async (req, res) => {
   try {
@@ -285,6 +303,40 @@ app.post('/api/feedback', async (req, res) => {
     res.json({ success: true, id: result.insertId });
   } catch (e) {
     console.error('[反馈提交失败]:', e.message);
+    res.status(500).json({ error: '服务器错误', detail: e.message });
+  }
+});
+
+// --- 修改密码 ---
+app.post('/api/change-password', auth, async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: '旧密码和新密码必填' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: '新密码长度不能少于6位' });
+    }
+
+    // 获取当前用户密码
+    const [rows] = await pool.query('SELECT password FROM users WHERE id = ?', [req.userId]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+
+    // 验证旧密码
+    const ok = await bcrypt.compare(oldPassword, rows[0].password);
+    if (!ok) {
+      return res.status(403).json({ error: '旧密码错误' });
+    }
+
+    // 更新密码
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password = ? WHERE id = ?', [hashed, req.userId]);
+    console.log(`[修改密码] userId ${req.userId} 密码已更新`);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[修改密码失败]:', e.message);
     res.status(500).json({ error: '服务器错误', detail: e.message });
   }
 });
